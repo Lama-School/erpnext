@@ -253,7 +253,7 @@ erpnext.selling.SellingController = class SellingController extends erpnext.Tran
 	}
 
 	calculate_commission() {
-		if(!this.frm.fields_dict.commission_rate) return;
+		if(!this.frm.fields_dict.commission_rate || this.frm.doc.docstatus === 1) return;
 
 		if(this.frm.doc.commission_rate > 100) {
 			this.frm.set_value("commission_rate", 100);
@@ -299,7 +299,8 @@ erpnext.selling.SellingController = class SellingController extends erpnext.Tran
 	}
 
 	batch_no(doc, cdt, cdn) {
-		var me = this;
+		super.batch_no(doc, cdt, cdn);
+
 		var item = frappe.get_doc(cdt, cdn);
 
 		if (item.serial_no) {
@@ -376,10 +377,6 @@ erpnext.selling.SellingController = class SellingController extends erpnext.Tran
 				if (doc.doctype === 'Sales Invoice' && (!doc.update_stock)) return;
 				this.set_batch_number(cdt, cdn);
 			}
-	}
-
-	batch_no(doc, cdt, cdn) {
-		super.batch_no(doc, cdt, cdn);
 	}
 
 	qty(doc, cdt, cdn) {
