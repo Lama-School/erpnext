@@ -702,12 +702,12 @@ class calculate_taxes_and_totals(object):
 					- base_write_off_amount
 				)
 
-			if invoice_total > 0 and self.doc.total_advance > invoice_total:
-				frappe.throw(
-					_("Advance amount cannot be greater than {0} {1}").format(
-						self.doc.party_account_currency, invoice_total
-					)
-				)
+			# if invoice_total > 0 and self.doc.total_advance > invoice_total:
+			# 	frappe.throw(
+			# 		_("Advance amount cannot be greater than {0} {1}").format(
+			# 			self.doc.party_account_currency, invoice_total
+			# 		)
+			# 	)
 
 			if self.doc.docstatus.is_draft():
 				if self.doc.get("write_off_outstanding_amount_automatically"):
