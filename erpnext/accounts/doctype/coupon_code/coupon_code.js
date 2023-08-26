@@ -29,7 +29,7 @@ frappe.ui.form.on('Coupon Code', {
 		}
 		else if(frm.doc.coupon_type=='Promotional'){
 			coupon_name=coupon_name.replace(/\s/g,'');
-			coupon_code=coupon_name.toUpperCase().slice(0,8);
+			coupon_code=coupon_name.toUpperCase().slice(0,20);
 		}
 		frm.doc.coupon_code=coupon_code;
 		frm.refresh_field('coupon_code');
