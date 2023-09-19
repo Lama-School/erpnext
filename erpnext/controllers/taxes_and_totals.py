@@ -333,7 +333,11 @@ class calculate_taxes_and_totals(object):
 			return
 
 		if hasattr(self.doc, "shipping_rule") and self.doc.shipping_rule:
-			shipping_rule = frappe.get_doc("Shipping Rule", self.doc.shipping_rule)
+			if frappe.cache().get_value(self.doc.shipping_rule):
+				shipping_rule = frappe.cache().get_value(self.doc.shipping_rule)
+			else:
+				shipping_rule = frappe.get_doc("Shipping Rule", self.doc.shipping_rule)
+				frappe.cache().set_value(self.doc.shipping_rule, shipping_rule,expires_in_sec=60*60*24*30)
 			shipping_rule.apply(self.doc)
 
 			self._calculate()

@@ -825,7 +825,12 @@ class AccountsController(TransactionBase):
 			shipping_field = self.meta.get_field(fieldname)
 			if shipping_field and shipping_field.fieldtype == "Link":
 				if self.get(fieldname):
-					return frappe.get_doc("Address", self.get(fieldname))
+					if frappe.cache().get_value(self.get(fieldname)):
+						return frappe.cache().get_value(self.get(fieldname))
+					else:
+						address=frappe.get_doc("Address", self.get(fieldname))
+						frappe.cache().set_value(self.get(fieldname), address,expires_in_sec=60*60*24*30)
+						return address
 
 		return {}
 
