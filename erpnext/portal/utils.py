@@ -110,8 +110,15 @@ def create_party_contact(doctype, fullname, user, party_name):
 def party_exists(doctype, user):
 	# check if contact exists against party and if it is linked to the doctype
 	contact_name = frappe.db.get_value("Contact", {"email_id": user})
+	contact_name=contact_name if contact_name else  frappe.db.get_value("Contact", {"user": user})
 	if contact_name:
 		contact = frappe.get_doc("Contact", contact_name)
+		if contact.links==[]:
+			customer=frappe.db.get_list("Customer",filters={'customer_primary_contact':contact_name})
+			if len(customer)>0:
+				contact.append("links", dict(link_doctype="Customer", link_name=customer[-1].name))
+				contact.save()
+				frappe.db.commit()
 		doctypes = [d.link_doctype for d in contact.links]
 		return doctype in doctypes
 

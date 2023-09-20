@@ -238,6 +238,8 @@ class SalesInvoice(SellingController):
 
 	def before_save(self):
 		set_account_for_mode_of_payment(self)
+		customer=frappe.get_doc("Customer",self.customer)
+		self.owner=customer.owner
 
 	def on_submit(self):
 		self.validate_pos_paid_amount()

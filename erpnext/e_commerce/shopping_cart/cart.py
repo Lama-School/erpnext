@@ -490,12 +490,24 @@ def get_party(user=None):
 
 	contact_name = get_contact_name(user)
 	party = None
-
+	changes = False
 	if contact_name:
 		contact = frappe.get_doc("Contact", contact_name)
 		if contact.links:
 			party_doctype = contact.links[0].link_doctype
 			party = contact.links[0].link_name
+		else:
+			party=frappe.db.get_list("Customer", filters={"owner": user}, fields=["name"])
+			party_doctype="Customer"
+			if len(party)>0:
+				party=party[-1].name
+				contact.append("links", dict(link_doctype='Customer', link_name=party))
+				if contact.user is None:
+					contact.user=user
+				contact.is_primary_contact=True
+				contact.save(ignore_permissions=True)
+				changes=True
+				
 
 	cart_settings = frappe.get_doc("E Commerce Settings")
 
@@ -505,7 +517,15 @@ def get_party(user=None):
 		debtors_account = get_debtors_account(cart_settings)
 
 	if party:
-		return frappe.get_doc(party_doctype, party)
+		
+		doc=frappe.get_doc(party_doctype, party)
+		if doc.customer_primary_contact is None:
+			doc.customer_primary_contact=contact_name
+			doc.save(ignore_permissions=True)
+			changes=True
+		if changes:
+			frappe.db.commit()
+		return doc
 
 	else:
 		if not cart_settings.enabled:
@@ -529,6 +549,7 @@ def get_party(user=None):
 		customer.insert(ignore_permissions=True)
 
 		contact = frappe.new_doc("Contact")
+		contact.user=user
 		contact.update({"first_name": fullname, "email_ids": [{"email_id": user, "is_primary": 1}]})
 		contact.append("links", dict(link_doctype="Customer", link_name=customer.name))
 		contact.flags.ignore_mandatory = True
@@ -634,7 +655,6 @@ def get_applicable_shipping_rules(party=None, quotation=None):
 	shipping_rules = get_shipping_rules(quotation)
 
 	if shipping_rules:
-		# we need this in sorted order as per the position of the rule in the settings page
 		return [[rule, rule] for rule in shipping_rules]
 
 

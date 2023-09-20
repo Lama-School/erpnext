@@ -342,7 +342,11 @@ class calculate_taxes_and_totals(object):
 			return
 
 		if hasattr(self.doc, "shipping_rule") and self.doc.shipping_rule:
-			shipping_rule = frappe.get_doc("Shipping Rule", self.doc.shipping_rule)
+			if frappe.cache().get_value(self.doc.shipping_rule):
+				shipping_rule = frappe.cache().get_value(self.doc.shipping_rule)
+			else:
+				shipping_rule = frappe.get_doc("Shipping Rule", self.doc.shipping_rule)
+				frappe.cache().set_value(self.doc.shipping_rule, shipping_rule,expires_in_sec=60*60*24*30)
 			shipping_rule.apply(self.doc)
 
 			self._calculate()
@@ -711,12 +715,12 @@ class calculate_taxes_and_totals(object):
 					- base_write_off_amount
 				)
 
-			if invoice_total > 0 and self.doc.total_advance > invoice_total:
-				frappe.throw(
-					_("Advance amount cannot be greater than {0} {1}").format(
-						self.doc.party_account_currency, invoice_total
-					)
-				)
+			# if invoice_total > 0 and self.doc.total_advance > invoice_total:
+			# 	frappe.throw(
+			# 		_("Advance amount cannot be greater than {0} {1}").format(
+			# 			self.doc.party_account_currency, invoice_total
+			# 		)
+			# 	)
 
 			if self.doc.docstatus.is_draft():
 				if self.doc.get("write_off_outstanding_amount_automatically"):
