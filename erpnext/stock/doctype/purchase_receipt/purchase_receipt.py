@@ -65,6 +65,16 @@ class PurchaseReceipt(BuyingController):
 				"percent_join_field": "purchase_invoice",
 				"overflow_type": "receipt",
 			},
+			{
+				"source_dt": "Purchase Receipt Item",
+				"target_dt": "Delivery Note Item",
+				"join_field": "delivery_note_item",
+				"source_field": "received_qty",
+				"target_field": "received_qty",
+				"target_parent_dt": "Delivery Note",
+				"target_ref_field": "qty",
+				"overflow_type": "receipt",
+			},
 		]
 
 		if cint(self.is_return):
@@ -114,6 +124,7 @@ class PurchaseReceipt(BuyingController):
 			self.set_status()
 
 		self.po_required()
+		self.validate_items_quality_inspection()
 		self.validate_with_previous_doc()
 		self.validate_uom_is_integer("uom", ["qty", "received_qty"])
 		self.validate_uom_is_integer("stock_uom", "stock_qty")
@@ -186,6 +197,26 @@ class PurchaseReceipt(BuyingController):
 			for d in self.get("items"):
 				if not d.purchase_order:
 					frappe.throw(_("Purchase Order number required for Item {0}").format(d.item_code))
+
+	def validate_items_quality_inspection(self):
+		for item in self.get("items"):
+			if item.quality_inspection:
+				qi = frappe.db.get_value(
+					"Quality Inspection",
+					item.quality_inspection,
+					["reference_type", "reference_name", "item_code"],
+					as_dict=True,
+				)
+
+				if qi.reference_type != self.doctype or qi.reference_name != self.name:
+					msg = f"""Row #{item.idx}: Please select a valid Quality Inspection with Reference Type
+						{frappe.bold(self.doctype)} and Reference Name {frappe.bold(self.name)}."""
+					frappe.throw(_(msg))
+
+				if qi.item_code != item.item_code:
+					msg = f"""Row #{item.idx}: Please select a valid Quality Inspection with Item Code
+						{frappe.bold(item.item_code)}."""
+					frappe.throw(_(msg))
 
 	def get_already_received_qty(self, po, po_detail):
 		qty = frappe.db.sql(
@@ -293,6 +324,7 @@ class PurchaseReceipt(BuyingController):
 			get_purchase_document_details,
 		)
 
+		stock_rbnb = None
 		if erpnext.is_perpetual_inventory_enabled(self.company):
 			stock_rbnb = self.get_company_default("stock_received_but_not_billed")
 			landed_cost_entries = get_item_account_wise_additional_cost(self.name)
@@ -368,8 +400,20 @@ class PurchaseReceipt(BuyingController):
 					)
 
 					outgoing_amount = d.base_net_amount
-					if self.is_internal_supplier and d.valuation_rate:
-						outgoing_amount = d.valuation_rate * d.stock_qty
+					if self.is_internal_transfer() and d.valuation_rate:
+						outgoing_amount = abs(
+							frappe.db.get_value(
+								"Stock Ledger Entry",
+								{
+									"voucher_type": "Purchase Receipt",
+									"voucher_no": self.name,
+									"voucher_detail_no": d.name,
+									"warehouse": d.from_warehouse,
+									"is_cancelled": 0,
+								},
+								"stock_value_difference",
+							)
+						)
 						credit_amount = outgoing_amount
 
 					if credit_amount:
@@ -428,27 +472,43 @@ class PurchaseReceipt(BuyingController):
 
 					# Amount added through landed-cos-voucher
 					if d.landed_cost_voucher_amount and landed_cost_entries:
-						for account, amount in landed_cost_entries[(d.item_code, d.name)].items():
-							account_currency = get_account_currency(account)
-							credit_amount = (
-								flt(amount["base_amount"])
-								if (amount["base_amount"] or account_currency != self.company_currency)
-								else flt(amount["amount"])
-							)
+						if (d.item_code, d.name) in landed_cost_entries:
+							for account, amount in landed_cost_entries[(d.item_code, d.name)].items():
+								account_currency = get_account_currency(account)
+								credit_amount = (
+									flt(amount["base_amount"])
+									if (amount["base_amount"] or account_currency != self.company_currency)
+									else flt(amount["amount"])
+								)
 
-							self.add_gl_entry(
-								gl_entries=gl_entries,
-								account=account,
-								cost_center=d.cost_center,
-								debit=0.0,
-								credit=credit_amount,
-								remarks=remarks,
-								against_account=warehouse_account_name,
-								credit_in_account_currency=flt(amount["amount"]),
-								account_currency=account_currency,
-								project=d.project,
-								item=d,
-							)
+								self.add_gl_entry(
+									gl_entries=gl_entries,
+									account=account,
+									cost_center=d.cost_center,
+									debit=0.0,
+									credit=credit_amount,
+									remarks=remarks,
+									against_account=warehouse_account_name,
+									credit_in_account_currency=flt(amount["amount"]),
+									account_currency=account_currency,
+									project=d.project,
+									item=d,
+								)
+
+					if d.rate_difference_with_purchase_invoice and stock_rbnb:
+						account_currency = get_account_currency(stock_rbnb)
+						self.add_gl_entry(
+							gl_entries=gl_entries,
+							account=stock_rbnb,
+							cost_center=d.cost_center,
+							debit=0.0,
+							credit=flt(d.rate_difference_with_purchase_invoice),
+							remarks=_("Adjustment based on Purchase Invoice rate"),
+							against_account=warehouse_account_name,
+							account_currency=account_currency,
+							project=d.project,
+							item=d,
+						)
 
 					# sub-contracting warehouse
 					if flt(d.rm_supp_cost) and warehouse_account.get(self.supplier_warehouse):
@@ -470,6 +530,7 @@ class PurchaseReceipt(BuyingController):
 						+ flt(d.landed_cost_voucher_amount)
 						+ flt(d.rm_supp_cost)
 						+ flt(d.item_tax_amount)
+						+ flt(d.rate_difference_with_purchase_invoice)
 					)
 
 					divisional_loss = flt(
@@ -544,7 +605,7 @@ class PurchaseReceipt(BuyingController):
 			account=provisional_account,
 			cost_center=item.cost_center,
 			debit=0.0,
-			credit=multiplication_factor * item.amount,
+			credit=multiplication_factor * item.base_amount,
 			remarks=remarks,
 			against_account=expense_account,
 			account_currency=credit_currency,
@@ -558,7 +619,7 @@ class PurchaseReceipt(BuyingController):
 			gl_entries=gl_entries,
 			account=expense_account,
 			cost_center=item.cost_center,
-			debit=multiplication_factor * item.amount,
+			debit=multiplication_factor * item.base_amount,
 			credit=0.0,
 			remarks=remarks,
 			against_account=provisional_account,
@@ -765,7 +826,7 @@ class PurchaseReceipt(BuyingController):
 			updated_pr += update_billed_amount_based_on_po(po_details, update_modified)
 
 		for pr in set(updated_pr):
-			pr_doc = self if (pr == self.name) else frappe.get_cached_doc("Purchase Receipt", pr)
+			pr_doc = self if (pr == self.name) else frappe.get_doc("Purchase Receipt", pr)
 			update_billing_percentage(pr_doc, update_modified=update_modified)
 
 		self.load_from_db()
@@ -881,7 +942,7 @@ def get_billed_amount_against_po(po_items):
 	return {d.po_detail: flt(d.billed_amt) for d in query}
 
 
-def update_billing_percentage(pr_doc, update_modified=True):
+def update_billing_percentage(pr_doc, update_modified=True, adjust_incoming_rate=False):
 	# Reload as billed amount was set in db directly
 	pr_doc.load_from_db()
 
@@ -897,6 +958,12 @@ def update_billing_percentage(pr_doc, update_modified=True):
 
 		total_amount += total_billable_amount
 		total_billed_amount += flt(item.billed_amt)
+		if adjust_incoming_rate:
+			adjusted_amt = 0.0
+			if item.billed_amt and item.amount:
+				adjusted_amt = flt(item.billed_amt) - flt(item.amount)
+
+			item.db_set("rate_difference_with_purchase_invoice", adjusted_amt, update_modified=False)
 
 	percent_billed = round(100 * (total_billed_amount / (total_amount or 1)), 6)
 	pr_doc.db_set("per_billed", percent_billed)
@@ -905,6 +972,26 @@ def update_billing_percentage(pr_doc, update_modified=True):
 	if update_modified:
 		pr_doc.set_status(update=True)
 		pr_doc.notify_update()
+
+	if adjust_incoming_rate:
+		adjust_incoming_rate_for_pr(pr_doc)
+
+
+def adjust_incoming_rate_for_pr(doc):
+	doc.update_valuation_rate(reset_outgoing_rate=False)
+
+	for item in doc.get("items"):
+		item.db_update()
+
+	doc.docstatus = 2
+	doc.update_stock_ledger(allow_negative_stock=True, via_landed_cost_voucher=True)
+	doc.make_gl_entries_on_cancel()
+
+	# update stock & gl entries for submit state of PR
+	doc.docstatus = 1
+	doc.update_stock_ledger(allow_negative_stock=True, via_landed_cost_voucher=True)
+	doc.make_gl_entries()
+	doc.repost_future_sle_and_gle()
 
 
 def get_item_wise_returned_qty(pr_doc):

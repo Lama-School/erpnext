@@ -119,8 +119,8 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			}
 		});
 
-		if(this.frm.fields_dict["items"].grid.get_field('batch_no')) {
-			this.frm.set_query("batch_no", "items", function(doc, cdt, cdn) {
+		if(this.frm.fields_dict['items'].grid.get_field('batch_no')) {
+			this.frm.set_query('batch_no', 'items', function(doc, cdt, cdn) {
 				return me.set_query_for_batch(doc, cdt, cdn);
 			});
 		}
@@ -173,7 +173,9 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			this.frm.set_query("expense_account", "items", function(doc) {
 				return {
 					filters: {
-						"company": doc.company
+						"company": doc.company,
+						"report_type": "Profit and Loss",
+						"is_group": 0
 					}
 				};
 			});
@@ -185,14 +187,6 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			});
 		}
 
-		let batch_no_field = this.frm.get_docfield("items", "batch_no");
-		if (batch_no_field) {
-			batch_no_field.get_route_options_for_new_doc = function(row) {
-				return {
-					"item": row.doc.item_code
-				}
-			};
-		}
 
 		if (this.frm.fields_dict["items"].grid.get_field('blanket_order')) {
 			this.frm.set_query("blanket_order", "items", function(doc, cdt, cdn) {
@@ -245,6 +239,17 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 					}
 				}
 			]);
+		}
+
+		if(this.frm.fields_dict['items'].grid.get_field('batch_no')) {
+			let batch_field = this.frm.get_docfield('items', 'batch_no');
+			if (batch_field) {
+				batch_field.get_route_options_for_new_doc = (row) => {
+					return {
+						'item': row.doc.item_code
+					}
+				};
+			}
 		}
 	}
 
@@ -488,13 +493,13 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 								() => {
 									var d = locals[cdt][cdn];
 									me.add_taxes_from_item_tax_template(d.item_tax_rate);
-									if (d.free_item_data) {
+									if (d.free_item_data && d.free_item_data.length > 0) {
 										me.apply_product_discount(d);
 									}
 								},
 								() => {
 									// for internal customer instead of pricing rule directly apply valuation rate on item
-									if (me.frm.doc.is_internal_customer || me.frm.doc.is_internal_supplier) {
+									if ((me.frm.doc.is_internal_customer || me.frm.doc.is_internal_supplier) && me.frm.doc.represents_company === me.frm.doc.company) {
 										me.get_incoming_rate(item, me.frm.posting_date, me.frm.posting_time,
 											me.frm.doc.doctype, me.frm.doc.company);
 									} else {
@@ -956,6 +961,16 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		}
 		// Make read only if Accounts Settings doesn't allow stale rates
 		this.frm.set_df_property("conversion_rate", "read_only", erpnext.stale_rate_allowed() ? 0 : 1);
+	}
+
+	apply_discount_on_item(doc, cdt, cdn, field) {
+		var item = frappe.get_doc(cdt, cdn);
+		if(!item.price_list_rate) {
+			item[field] = 0.0;
+		} else {
+			this.price_list_rate(doc, cdt, cdn);
+		}
+		this.set_gross_profit(item);
 	}
 
 	shipping_rule() {
@@ -1628,6 +1643,9 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 						() => {
 							if(args.items.length) {
 								me._set_values_for_item_list(r.message.children);
+								$.each(r.message.children || [], function(i, d) {
+									me.apply_discount_on_item(d, d.doctype, d.name, 'discount_percentage');
+								});
 							}
 						},
 						() => { me.in_apply_price_list = false; }
@@ -1696,7 +1714,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		}
 
 		$.each(["company", "customer"], function(i, fieldname) {
-			if(frappe.meta.has_field(me.frm.doc.doctype, fieldname) && me.frm.doc.doctype != "Purchase Order") {
+			if(frappe.meta.has_field(me.frm.doc.doctype, fieldname) && !["Purchase Order","Purchase Invoice"].includes(me.frm.doc.doctype)) {
 				if (!me.frm.doc[fieldname]) {
 					frappe.msgprint(__("Please specify") + ": " +
 						frappe.meta.get_label(me.frm.doc.doctype, fieldname, me.frm.doc.name) +
@@ -1884,29 +1902,71 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 
 	get_advances() {
 		if(!this.frm.is_return) {
+			var me = this;
 			return this.frm.call({
 				method: "set_advances",
 				doc: this.frm.doc,
 				callback: function(r, rt) {
 					refresh_field("advances");
+					me.frm.dirty();
 				}
 			})
 		}
 	}
 
 	make_payment_entry() {
+		let via_journal_entry = this.frm.doc.__onload && this.frm.doc.__onload.make_payment_via_journal_entry;
+		if(this.has_discount_in_schedule() && !via_journal_entry) {
+			// If early payment discount is applied, ask user for reference date
+			this.prompt_user_for_reference_date();
+		} else {
+			this.make_mapped_payment_entry();
+		}
+	}
+
+	make_mapped_payment_entry(args) {
+		var me = this;
+		args = args || { "dt": this.frm.doc.doctype, "dn": this.frm.doc.name };
 		return frappe.call({
-			method: cur_frm.cscript.get_method_for_payment(),
-			args: {
-				"dt": cur_frm.doc.doctype,
-				"dn": cur_frm.doc.name
-			},
+			method: me.get_method_for_payment(),
+			args: args,
 			callback: function(r) {
 				var doclist = frappe.model.sync(r.message);
 				frappe.set_route("Form", doclist[0].doctype, doclist[0].name);
-				// cur_frm.refresh_fields()
 			}
 		});
+	}
+
+	prompt_user_for_reference_date(){
+		let me = this;
+		frappe.prompt({
+			label: __("Cheque/Reference Date"),
+			fieldname: "reference_date",
+			fieldtype: "Date",
+			reqd: 1,
+		}, (values) => {
+			let args = {
+				"dt": me.frm.doc.doctype,
+				"dn": me.frm.doc.name,
+				"reference_date": values.reference_date
+			}
+			me.make_mapped_payment_entry(args);
+		},
+		__("Reference Date for Early Payment Discount"),
+		__("Continue")
+		);
+	}
+
+	has_discount_in_schedule() {
+		let is_eligible = in_list(
+			["Sales Order", "Sales Invoice", "Purchase Order", "Purchase Invoice"],
+			this.frm.doctype
+		);
+		let has_payment_schedule = this.frm.doc.payment_schedule && this.frm.doc.payment_schedule.length;
+		if(!is_eligible || !has_payment_schedule) return false;
+
+		let has_discount = this.frm.doc.payment_schedule.some(row => row.discount);
+		return has_discount;
 	}
 
 	make_quality_inspection() {

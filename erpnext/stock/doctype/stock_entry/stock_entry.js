@@ -101,7 +101,6 @@ frappe.ui.form.on('Stock Entry', {
 			}
 		});
 
-
 		frm.add_fetch("bom_no", "inspection_required", "inspection_required");
 		erpnext.accounts.dimensions.setup_dimension_filters(frm, frm.doctype);
 
@@ -336,6 +335,15 @@ frappe.ui.form.on('Stock Entry', {
 
 		if(!check_should_not_attach_bom_items(frm.doc.bom_no)) {
 			erpnext.accounts.dimensions.update_dimension(frm, frm.doctype);
+		}
+
+		let batch_field = frm.get_docfield('items', 'batch_no');
+		if (batch_field) {
+			batch_field.get_route_options_for_new_doc = (row) => {
+				return {
+					'item': row.doc.item_code
+				}
+			};
 		}
 	},
 
@@ -677,6 +685,21 @@ frappe.ui.form.on('Stock Entry', {
 			});
 		}
 	},
+
+	process_loss_qty(frm) {
+		if (frm.doc.process_loss_qty) {
+			frm.doc.process_loss_percentage = flt(frm.doc.process_loss_qty / frm.doc.fg_completed_qty * 100, precision("process_loss_qty", frm.doc));
+			refresh_field("process_loss_percentage");
+		}
+	},
+
+	process_loss_percentage(frm) {
+		debugger
+		if (frm.doc.process_loss_percentage) {
+			frm.doc.process_loss_qty = flt((frm.doc.fg_completed_qty * frm.doc.process_loss_percentage) / 100 , precision("process_loss_qty", frm.doc));
+			refresh_field("process_loss_qty");
+		}
+	}
 });
 
 frappe.ui.form.on('Stock Entry Detail', {

@@ -3,7 +3,7 @@
 
 import frappe
 import frappe.defaults
-from frappe import _, throw
+from frappe import _, bold, throw
 from frappe.contacts.doctype.address.address import get_address_display
 from frappe.contacts.doctype.contact.contact import get_contact_name
 from frappe.utils import cint, cstr, flt, get_fullname
@@ -201,6 +201,11 @@ def get_shopping_cart_menu(context=None):
 @frappe.whitelist()
 def add_new_address(doc):
 	doc = frappe.parse_json(doc)
+	address_title = doc.get("address_title")
+	if frappe.db.exists("Address", {"address_title": address_title}):
+		msg = f"The address with the title {bold(address_title)} already exists. Please change the title accordingly."
+		frappe.throw(_(msg), title=_("Address Already Exists"))
+
 	doc.update({"doctype": "Address"})
 	address = frappe.get_doc(doc)
 	address.save(ignore_permissions=True)
@@ -650,8 +655,6 @@ def get_applicable_shipping_rules(party=None, quotation=None):
 	shipping_rules = get_shipping_rules(quotation)
 
 	if shipping_rules:
-		# rule_label_map = frappe.db.get_values("Shipping Rule", shipping_rules, "label")
-		# we need this in sorted order as per the position of the rule in the settings page
 		return [[rule, rule] for rule in shipping_rules]
 
 
