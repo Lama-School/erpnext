@@ -602,7 +602,7 @@ def apply_pricing_rule_on_transaction(doc):
 				doc.set_missing_values()
 				doc.calculate_taxes_and_totals()
 		if doc.get("coupon_code"):
-			frappe.log_error(f"Coupon apply error {doc.name} {doc.get('coupon_code')} {frappe.session.user}",pricing_rules)
+			frappe.log_error(f"Coupon apply error {doc.name} {doc.get('coupon_code')} {frappe.session.user}",{"pricing_rules":pricing_rules,"conditions":conditions})
 
 def remove_free_item(doc):
 	for d in doc.items:
