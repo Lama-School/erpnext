@@ -570,7 +570,9 @@ def apply_pricing_rule_on_transaction(doc):
 
 		if not pricing_rules:
 			remove_free_item(doc)
-
+		coupon_code_pricing_rule=None
+		if doc.get("coupon_code"):
+			coupon_code_pricing_rule = frappe.get_doc("Coupon Code", doc.get("coupon_code"))
 		for d in pricing_rules:
 			if d.price_or_product_discount == "Price":
 				if d.apply_discount_on:
@@ -590,20 +592,8 @@ def apply_pricing_rule_on_transaction(doc):
 						if not d.coupon_code_based:
 							doc.set(field, d.get(pr_field))
 						elif doc.get("coupon_code"):
-							# coupon code based pricing rule
-							coupon_code_pricing_rule = frappe.db.get_value(
-								"Coupon Code", doc.get("coupon_code"), "pricing_rule"
-							)
-							if coupon_code_pricing_rule == d.name:
-								# if selected coupon code is linked with pricing rule
+							if coupon_code_pricing_rule and coupon_code_pricing_rule.pricing_rule == d.name:
 								doc.set(field, d.get(pr_field))
-							# else:
-								# reset discount if not linked
-								# doc.set(field, 0)
-						# else:
-							# if coupon code based but no coupon code selected
-							# doc.set(field, 0)
-
 				doc.calculate_taxes_and_totals()
 			elif d.price_or_product_discount == "Product":
 				item_details = frappe._dict({"parenttype": doc.doctype, "free_item_data": []})
@@ -611,7 +601,8 @@ def apply_pricing_rule_on_transaction(doc):
 				apply_pricing_rule_for_free_items(doc, item_details.free_item_data)
 				doc.set_missing_values()
 				doc.calculate_taxes_and_totals()
-
+		if doc.get("coupon_code"):
+			frappe.log_error(f"Coupon apply error {doc.name} {doc.get('coupon_code')} {frappe.session.user}",pricing_rules)
 
 def remove_free_item(doc):
 	for d in doc.items:
