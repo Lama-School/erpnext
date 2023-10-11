@@ -270,6 +270,8 @@ def update_cart_address(address_type, address_name):
 		quotation.shipping_address_name = address_name
 		quotation.shipping_address = address_display
 		quotation.customer_address = quotation.customer_address or address_name
+		if quotation.customer_address==address_name:
+			quotation.place_of_supply = address_doc.gst_state_number+'-'+address_doc.gst_state
 		address_doc = next(
 			(doc for doc in get_shipping_addresses() if doc["name"] == address_name), None
 		)
@@ -278,13 +280,13 @@ def update_cart_address(address_type, address_name):
 	quotation.flags.ignore_permissions = True
 	quotation.save()
 
-	context = get_cart_quotation(quotation)
-	context["address"] = address_doc
+	# context = get_cart_quotation(quotation)
+	# context["address"] = address_doc
 
-	return {
-		"taxes": frappe.render_template("templates/includes/order/order_taxes.html", context),
-		"address": frappe.render_template("templates/includes/cart/address_card.html", context),
-	}
+	# return {
+	# 	"taxes": frappe.render_template("templates/includes/order/order_taxes.html", context),
+	# 	"address": frappe.render_template("templates/includes/cart/address_card.html", context),
+	# }
 
 
 def guess_territory():
