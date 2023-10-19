@@ -15,7 +15,9 @@
   "purchase_amount",
   "expiry_date",
   "posting_date",
-  "company"
+  "company",
+  "granted_for",
+  "granted_by"
  ],
  "fields": [
   {
@@ -82,10 +84,20 @@
    "in_list_view": 1,
    "label": "Invoice",
    "options": "invoice_type"
+  },
+  {
+   "fieldname": "granted_for",
+   "fieldtype": "Data",
+   "label": "Granted For"
+  },
+  {
+   "fieldname": "granted_by",
+   "fieldtype": "Data",
+   "label": "Granted By"
   }
  ],
  "links": [],
- "modified": "2023-09-26 18:48:38.869862",
+ "modified": "2023-10-19 17:27:48.716767",
  "modified_by": "Administrator",
  "module": "Accounts",
  "name": "Loyalty Point Entry",
