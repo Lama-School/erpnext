@@ -509,7 +509,7 @@ def get_party(user=None):
 				contact.is_primary_contact=True
 				contact.save(ignore_permissions=True)
 				changes=True
-				
+
 
 	cart_settings = frappe.get_doc("E Commerce Settings")
 
@@ -519,9 +519,9 @@ def get_party(user=None):
 		debtors_account = get_debtors_account(cart_settings)
 
 	if party:
-		
+
 		doc=frappe.get_doc(party_doctype, party)
-		if doc.customer_primary_contact is None:
+		if party_doctype=="Customer" and doc.customer_primary_contact is None:
 			doc.customer_primary_contact=contact_name
 			doc.save(ignore_permissions=True)
 			changes=True
